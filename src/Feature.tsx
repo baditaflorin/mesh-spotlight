@@ -1,9 +1,8 @@
 import { useEffect, useMemo } from "react";
 import {
   createClockSync,
-  useFairRng,
-  useMeshSlot,
   useNamedPeer,
+  useRotatingTurn,
   type MeshConfig,
   type YRoom,
 } from "@baditaflorin/mesh-common";
@@ -30,21 +29,17 @@ function initials(s: string): string {
 }
 
 function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
-  const { name, setName, names, nameOf } = useNamedPeer(config, room);
-  const fairRng = useFairRng(room, "spotlight-salts", { minContributors: 1 });
-  const clock = useMemo(() => (room ? createClockSync(room.provider) : null), [room]);
-  useEffect(() => () => clock?.destroy(), [clock]);
-  const slot = useMeshSlot(clock, 30_000);
+  const { name, setName, nameOf } = useNamedPeer(config, room);
+  const clock = useMemo(() => createClockSync(room.provider), [room]);
+  useEffect(() => () => clock.destroy(), [clock]);
+  const turn = useRotatingTurn(room, clock, { slotMs: 30_000, order: "shuffle" });
 
-  const presentRaw = Object.keys(names)
-    .filter((n) => names[n])
-    .sort();
-  const present = presentRaw.length ? presentRaw : [room.peerId];
-  const order = fairRng.seed != null ? fairRng.shuffle(present) : present;
-  const featured = order[slot.slotId % order.length]!;
+  const order = turn.order.length ? turn.order : [room.peerId];
+  const featured = turn.currentPeerId ?? room.peerId;
   const queue: string[] = [];
+  const featuredIdx = order.indexOf(featured);
   for (let i = 1; i <= 3 && i < order.length; i++) {
-    queue.push(order[(slot.slotId + i) % order.length]!);
+    queue.push(order[(featuredIdx + i) % order.length]!);
   }
 
   const resolve = (p: string) => nameOf(p) ?? `peer-${p.slice(0, 6)}`;
@@ -56,7 +51,7 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
       <header className="spot-header">
         <h1>spotlight</h1>
         <p className="spot-status">
-          {present.length} peer{present.length === 1 ? "" : "s"} · fair rotation every 30s
+          {order.length} peer{order.length === 1 ? "" : "s"} · fair rotation every 30s
         </p>
       </header>
 
@@ -79,9 +74,9 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
       </div>
 
       <div className="spot-countdown">
-        <span>{Math.ceil(slot.slotMsRemaining / 1000)}s until next spotlight</span>
+        <span>{Math.ceil(turn.msToNextTurn / 1000)}s until next spotlight</span>
         <div className="spot-progress" aria-hidden="true">
-          <div className="spot-progress-fill" style={{ width: `${slot.progress * 100}%` }} />
+          <div className="spot-progress-fill" style={{ width: `${turn.progress * 100}%` }} />
         </div>
       </div>
 
@@ -98,11 +93,8 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
 
       <div className="spot-footer">
         <span className="spot-chip">
-          slot #{slot.slotId} · {present.length} present
+          slot #{turn.slotId} · {order.length} present
         </span>
-        <button type="button" className="spot-reroll" onClick={() => fairRng.rerollMine()}>
-          reroll my salt
-        </button>
       </div>
     </div>
   );
