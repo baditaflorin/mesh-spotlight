@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import {
   createClockSync,
   useNamedPeer,
+  useRoster,
   useRotatingTurn,
   type MeshConfig,
   type YRoom,
@@ -28,11 +29,42 @@ function initials(s: string): string {
   return ((parts[0]![0] ?? "") + (parts[parts.length - 1]![0] ?? "")).toUpperCase();
 }
 
+const DEFAULT_SLOT_MS = 30_000;
+
+/**
+ * Spotlight rotates every 30 s by default. Tests (and demos) can shorten the
+ * interval with `?slot=<ms>` so a full rotation is observable headless. Clamped
+ * to a ≥1 000 ms floor so a hostile/typo value can't busy-spin the slot clock.
+ */
+function slotMs(): number {
+  if (typeof window === "undefined") return DEFAULT_SLOT_MS;
+  const raw = new URLSearchParams(window.location.search).get("slot");
+  const n = raw == null ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= 1_000 ? n : DEFAULT_SLOT_MS;
+}
+
 function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
   const { name, setName, nameOf } = useNamedPeer(config, room);
   const clock = useMemo(() => createClockSync(room.provider), [room]);
   useEffect(() => () => clock.destroy(), [clock]);
-  const turn = useRotatingTurn(room, clock, { slotMs: 30_000, order: "shuffle" });
+  const slot = useMemo(() => slotMs(), []);
+  // Reshuffle once per FULL pass through the roster, not every slot. With the
+  // default `reshuffleEvery: 1`, the per-slot reseed of the shuffle moves in
+  // lockstep with the `slotId % n` index for small rosters and the SAME peer
+  // stays featured for a long sticky run (e.g. one peer held the spotlight for
+  // ~10 consecutive slots with 2 peers) — contradicting "a new featured peer
+  // every 30 s". Reshuffling every `n` slots makes the index walk cleanly
+  // through one shuffled permutation (a different peer almost every slot) and
+  // reshuffles for the next pass, keeping it both fresh AND fair. The roster is
+  // a shared, sorted CRDT so both peers compute the same `reshuffleEvery` and
+  // therefore agree on who is featured.
+  const present = useRoster(room).present.length;
+  const reshuffleEvery = Math.max(2, present);
+  const turn = useRotatingTurn(room, clock, {
+    slotMs: slot,
+    order: "shuffle",
+    reshuffleEvery,
+  });
 
   const order = turn.order.length ? turn.order : [room.peerId];
   const featured = turn.currentPeerId ?? room.peerId;
@@ -47,7 +79,12 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
   const isMe = featured === room.peerId;
 
   return (
-    <div className="spot-screen">
+    <div
+      className="spot-screen"
+      data-featured-peer={featured}
+      data-slot={turn.slotId}
+      data-slot-ms={slot}
+    >
       <header className="spot-header">
         <h1>spotlight</h1>
         <p className="spot-status">

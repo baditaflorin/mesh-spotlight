@@ -1,7 +1,7 @@
 # mesh-spotlight
 
 [![pages](https://img.shields.io/badge/live-baditaflorin.github.io%2Fmesh-spotlight-f4cf45)](https://baditaflorin.github.io/mesh-spotlight/)
-[![version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/baditaflorin/mesh-spotlight/blob/main/package.json)
+[![version](https://img.shields.io/badge/version-0.1.1-blue)](https://github.com/baditaflorin/mesh-spotlight/blob/main/package.json)
 [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 > Rotating spotlight: a new featured peer every 30 seconds, fairly drawn.
