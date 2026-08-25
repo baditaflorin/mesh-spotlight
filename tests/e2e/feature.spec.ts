@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { openTwoPeers } from "@baditaflorin/mesh-common/testing";
 import { readFileSync } from "node:fs";
 
@@ -12,7 +12,8 @@ test("spotlight agrees on featured peer across both screens", async ({ browser, 
   try {
     await a.getByPlaceholder("your name").fill("alice");
     await b.getByPlaceholder("your name").fill("bob");
-    await a.waitForTimeout(800); // let names + roster gather
+    await expect(a.locator(".spot-status")).toContainText("2 peers", { timeout: 15_000 });
+    await expect(b.locator(".spot-status")).toContainText("2 peers", { timeout: 15_000 });
 
     const featuredA = (await a.locator(".spot-featured-name").innerText()).trim();
     const featuredB = (await b.locator(".spot-featured-name").innerText()).trim();
@@ -24,33 +25,10 @@ test("spotlight agrees on featured peer across both screens", async ({ browser, 
   }
 });
 
-/**
- * Open two peers at a URL that carries `?slot=<ms>` so the rotation is fast
- * enough to observe headless. y-webrtc's BroadcastChannel fallback syncs them
- * with no signaling server.
- */
-async function openTwoPeersAt(
-  browser: Browser,
-  url: string,
-): Promise<{ a: Page; b: Page; cleanup: () => Promise<void> }> {
-  const roomId = `e2e-${Math.random().toString(36).slice(2, 8)}`;
-  const context = await browser.newContext({ baseURL: url || undefined });
-  await context.addInitScript(
-    ({ prefix, room }) => {
-      localStorage.setItem(`${prefix}:room`, room);
-      localStorage.setItem(`${prefix}:signalingUrl`, "ws://localhost:1/never-connects");
-      localStorage.removeItem(`${prefix}:iceServers`);
-    },
-    { prefix: storagePrefix, room: roomId },
-  );
-  const a = await context.newPage();
-  const b = await context.newPage();
-  await Promise.all([a.goto(url), b.goto(url)]);
-  return { a, b, cleanup: () => context.close() };
-}
-
-const featuredPeer = (p: Page) => p.locator(".spot-screen").getAttribute("data-featured-peer");
-const currentSlot = (p: Page) => p.locator(".spot-screen").getAttribute("data-slot");
+const featuredPeer = (p: import("@playwright/test").Page) =>
+  p.locator(".spot-screen").getAttribute("data-featured-peer");
+const currentSlot = (p: import("@playwright/test").Page) =>
+  p.locator(".spot-screen").getAttribute("data-slot");
 
 test("spotlight ROTATES freshly (not a sticky multi-slot run) and BOTH screens agree on every slot", async ({
   browser,
@@ -60,11 +38,14 @@ test("spotlight ROTATES freshly (not a sticky multi-slot run) and BOTH screens a
   // 1s slots (the clamp floor) so ~16 slots fit inside the test budget. 16 slots
   // is wider than the old sticky run (one peer held for ~10 consecutive slots),
   // so the transition count below cleanly separates buggy from fixed.
-  const { a, b, cleanup } = await openTwoPeersAt(browser, (baseURL ?? "") + "?slot=1000");
+  const { a, b, cleanup } = await openTwoPeers(browser, (baseURL ?? "") + "?slot=1000", {
+    storagePrefix,
+  });
   try {
     await a.getByPlaceholder("your name").fill("alice");
     await b.getByPlaceholder("your name").fill("bob");
-    await a.waitForTimeout(1_000); // names + roster gather
+    await expect(a.locator(".spot-status")).toContainText("2 peers", { timeout: 15_000 });
+    await expect(b.locator(".spot-status")).toContainText("2 peers", { timeout: 15_000 });
 
     // Sample the featured peer once per distinct slot for SLOTS slots. The
     // featured peer is keyed on the CRDT peerId (collision-proof, unlike the
